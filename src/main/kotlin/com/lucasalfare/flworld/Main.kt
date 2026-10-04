@@ -504,7 +504,28 @@ data class WorldMovement(
     require(progress in 0.0..1.0) { "O progresso do movimento deve estar entre 0.0 e 1.0." }
   }
 
+  val completionInstant: WorldInstant
+    get() = startInstant + duration
+
   val isInProgress: Boolean get() = state == WorldMovementState.IN_PROGRESS
   val isCompleted: Boolean get() = state == WorldMovementState.COMPLETED
   val isInterrupted: Boolean get() = state == WorldMovementState.INTERRUPTED
+
+  fun progressAt(currentInstant: WorldInstant): Double {
+    if (state == WorldMovementState.INTERRUPTED) return progress
+    if (duration.value <= 0L) return 1.0
+    if (currentInstant <= startInstant) return 0.0
+    if (currentInstant >= completionInstant) return 1.0
+
+    val elapsed = (currentInstant - startInstant).value.toDouble()
+    val total = duration.value.toDouble()
+    return (elapsed / total).coerceIn(0.0, 1.0)
+  }
+
+  fun updateAt(currentInstant: WorldInstant): WorldMovement {
+    if (state == WorldMovementState.INTERRUPTED) return this
+    val currentProgress = progressAt(currentInstant)
+    val newState = if (currentProgress >= 1.0) WorldMovementState.COMPLETED else WorldMovementState.IN_PROGRESS
+    return copy(progress = currentProgress, state = newState)
+  }
 }
