@@ -157,6 +157,59 @@ class World(val id: WorldId) {
     )
   }
 
+  fun advance(duration: WorldDuration): List<WorldScheduledEvent> {
+    if (duration.value <= 0) return emptyList()
+    val targetInstant = clock.currentInstant + duration
+
+    clock.advance(duration)
+    val processedEvents = scheduler.processEventsUpTo(targetInstant)
+
+    val activeMovements = movements.values.toList()
+    for (movement in activeMovements) {
+      val updated = movement.updateAt(targetInstant)
+      if (updated.isCompleted) {
+        movements.remove(movement.entityId)
+        state.setLocation(movement.entityId, movement.destination)
+        publish("MovementCompleted", updated, movement.entityId)
+      } else if (updated.isInProgress) {
+        movements[movement.entityId] = updated
+      }
+    }
+
+    return processedEvents
+  }
+
+  fun step(): WorldStepResult {
+    val currentInstant = clock.currentInstant
+
+    val futureEvents = scheduler.getFutureEvents(currentInstant)
+    val nextEventInstant = futureEvents.minOfOrNull { it.instant }
+
+    val nextMovementInstant = movements.values.filter { it.isInProgress }.minOfOrNull { it.completionInstant }
+
+    val nextInstants = listOfNotNull(nextEventInstant, nextMovementInstant).filter { it > currentInstant }
+    val targetInstant = nextInstants.minOrNull() ?: return WorldStepResult(
+      advanced = false,
+      previousInstant = currentInstant,
+      currentInstant = currentInstant,
+      processedEvents = emptyList(),
+      completedMovements = emptyList()
+    )
+
+    val duration = targetInstant - currentInstant
+    val previousInstant = currentInstant
+
+    val targetMovementsBefore = movements.values.filter { it.isInProgress && it.completionInstant == targetInstant }
+    val processedEvents = advance(duration)
+
+    return WorldStepResult(
+      advanced = true,
+      previousInstant = previousInstant,
+      currentInstant = clock.currentInstant,
+      processedEvents = processedEvents,
+      completedMovements = targetMovementsBefore.map { it.copy(state = WorldMovementState.COMPLETED, progress = 1.0) })
+  }
+
   companion object {
     fun restore(snapshot: WorldSnapshot, calendar: WorldCalendar? = null): World {
       val world = World(snapshot.id)
@@ -185,6 +238,14 @@ class World(val id: WorldId) {
     }
   }
 }
+
+data class WorldStepResult(
+  val advanced: Boolean,
+  val previousInstant: WorldInstant,
+  val currentInstant: WorldInstant,
+  val processedEvents: List<WorldScheduledEvent>,
+  val completedMovements: List<WorldMovement>
+)
 
 data class WorldPath(
   val origin: WorldLocationId, val destination: WorldLocationId, val connections: List<WorldConnection> = emptyList()
