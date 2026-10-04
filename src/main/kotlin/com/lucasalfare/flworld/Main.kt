@@ -26,20 +26,48 @@ data class WorldConnection(
   val id: WorldConnectionId, val from: WorldLocationId, val to: WorldLocationId
 )
 
+data class WorldEvent(
+  val instant: WorldInstant,
+  val type: String,
+  val data: Any? = null,
+  val sourceId: WorldEntityId? = null,
+  val snapshot: WorldSnapshot
+)
+
+fun interface WorldObserver {
+  fun onEvent(event: WorldEvent)
+}
+
 class World(val id: WorldId) {
   private val entities = mutableMapOf<WorldEntityId, WorldEntity>()
   private val groups = mutableMapOf<WorldGroupId, WorldGroup>()
   private val movements = mutableMapOf<WorldEntityId, WorldMovement>()
+  private val observers = mutableListOf<WorldObserver>()
 
-  val graph = WorldGraph()
-  val state = WorldState()
-  val clock = WorldClock()
-  val scheduler = WorldScheduler()
+  internal var isRestoring = false
+
+  val graph = WorldGraph().apply { eventPublisher = ::publish }
+  val state = WorldState().apply { eventPublisher = ::publish }
+  val clock = WorldClock().apply { eventPublisher = ::publish }
+  val scheduler = WorldScheduler().apply { eventPublisher = ::publish }
 
   var calendar: WorldCalendar? = null
 
+  fun onEvent(observer: WorldObserver) {
+    observers.add(observer)
+  }
+
+  internal fun publish(type: String, data: Any? = null, sourceId: WorldEntityId? = null) {
+    if (isRestoring || observers.isEmpty()) return
+    val event = WorldEvent(
+      instant = clock.currentInstant, type = type, data = data, sourceId = sourceId, snapshot = snapshot()
+    )
+    observers.forEach { it.onEvent(event) }
+  }
+
   fun registerEntity(entity: WorldEntity) {
     entities[entity.id] = entity
+    publish("EntityRegistered", entity, entity.id)
   }
 
   fun getEntity(id: WorldEntityId): WorldEntity? {
@@ -51,11 +79,15 @@ class World(val id: WorldId) {
   }
 
   fun removeEntity(id: WorldEntityId) {
-    entities.remove(id)
+    if (entities.remove(id) != null) {
+      publish("EntityRemoved", id, id)
+    }
   }
 
   fun registerGroup(group: WorldGroup) {
+    group.eventPublisher = ::publish
     groups[group.id] = group
+    publish("GroupRegistered", group)
   }
 
   fun getGroup(id: WorldGroupId): WorldGroup? {
@@ -63,11 +95,16 @@ class World(val id: WorldId) {
   }
 
   fun removeGroup(id: WorldGroupId) {
-    groups.remove(id)
+    val group = groups.remove(id)
+    if (group != null) {
+      group.eventPublisher = null
+      publish("GroupRemoved", id)
+    }
   }
 
   fun startMovement(movement: WorldMovement) {
     movements[movement.entityId] = movement
+    publish("MovementStarted", movement, movement.entityId)
   }
 
   fun getMovement(entityId: WorldEntityId): WorldMovement? {
@@ -75,7 +112,10 @@ class World(val id: WorldId) {
   }
 
   fun stopMovement(entityId: WorldEntityId) {
-    movements.remove(entityId)
+    val movement = movements.remove(entityId)
+    if (movement != null) {
+      publish("MovementStopped", entityId, entityId)
+    }
   }
 
   fun getActiveMovements(): List<WorldMovement> {
@@ -98,6 +138,7 @@ class World(val id: WorldId) {
   companion object {
     fun restore(snapshot: WorldSnapshot, calendar: WorldCalendar? = null): World {
       val world = World(snapshot.id)
+      world.isRestoring = true
       world.calendar = calendar
 
       snapshot.entities.forEach { world.registerEntity(it) }
@@ -114,6 +155,9 @@ class World(val id: WorldId) {
       world.scheduler.restore(snapshot.scheduler)
 
       snapshot.activeMovements.forEach { world.startMovement(it) }
+
+      world.isRestoring = false
+      world.publish("WorldRestored", snapshot)
 
       return world
     }
@@ -344,22 +388,25 @@ class AStarPathFinder(
 }
 
 data class WorldGraphSnapshot(
-  val locations: List<WorldLocation>,
-  val connections: List<WorldConnection>
+  val locations: List<WorldLocation>, val connections: List<WorldConnection>
 )
 
 class WorldGraph {
+  internal var eventPublisher: ((String, Any?, WorldEntityId?) -> Unit)? = null
+
   private val locations = mutableMapOf<WorldLocationId, WorldLocation>()
   private val connections = mutableMapOf<WorldConnectionId, WorldConnection>()
   private val outgoingConnections = mutableMapOf<WorldLocationId, MutableList<WorldConnection>>()
 
   fun registerLocation(location: WorldLocation) {
     locations[location.id] = location
+    eventPublisher?.invoke("LocationRegistered", location, null)
   }
 
   fun registerConnection(connection: WorldConnection) {
     connections[connection.id] = connection
     outgoingConnections.getOrPut(connection.from) { mutableListOf() }.add(connection)
+    eventPublisher?.invoke("ConnectionRegistered", connection, null)
   }
 
   fun getLocation(id: WorldLocationId): WorldLocation? {
@@ -412,10 +459,13 @@ class WorldGraph {
 }
 
 class WorldState {
+  internal var eventPublisher: ((String, Any?, WorldEntityId?) -> Unit)? = null
+
   private val entityLocations = mutableMapOf<WorldEntityId, WorldLocationId>()
 
   fun setLocation(entityId: WorldEntityId, locationId: WorldLocationId) {
     entityLocations[entityId] = locationId
+    eventPublisher?.invoke("LocationChanged", mapOf("entityId" to entityId, "locationId" to locationId), entityId)
   }
 
   fun getLocation(entityId: WorldEntityId): WorldLocationId? {
@@ -423,7 +473,9 @@ class WorldState {
   }
 
   fun removeLocation(entityId: WorldEntityId) {
-    entityLocations.remove(entityId)
+    if (entityLocations.remove(entityId) != null) {
+      eventPublisher?.invoke("LocationRemoved", entityId, entityId)
+    }
   }
 
   fun snapshot(): Map<WorldEntityId, WorldLocationId> {
@@ -440,19 +492,24 @@ class WorldState {
 value class WorldGroupId(val value: String)
 
 data class WorldGroupSnapshot(
-  val id: WorldGroupId,
-  val locations: Set<WorldLocationId>
+  val id: WorldGroupId, val locations: Set<WorldLocationId>
 )
 
 class WorldGroup(val id: WorldGroupId) {
+  internal var eventPublisher: ((String, Any?, WorldEntityId?) -> Unit)? = null
+
   private val locations = mutableSetOf<WorldLocationId>()
 
   fun addLocation(locationId: WorldLocationId) {
-    locations.add(locationId)
+    if (locations.add(locationId)) {
+      eventPublisher?.invoke("GroupLocationAdded", mapOf("groupId" to id, "locationId" to locationId), null)
+    }
   }
 
   fun removeLocation(locationId: WorldLocationId) {
-    locations.remove(locationId)
+    if (locations.remove(locationId)) {
+      eventPublisher?.invoke("GroupLocationRemoved", mapOf("groupId" to id, "locationId" to locationId), null)
+    }
   }
 
   fun hasLocation(locationId: WorldLocationId): Boolean {
@@ -504,11 +561,16 @@ data class CalendarDate(
 )
 
 class WorldClock(initialInstant: WorldInstant = WorldInstant(0)) {
+  internal var eventPublisher: ((String, Any?, WorldEntityId?) -> Unit)? = null
+
   var currentInstant: WorldInstant = initialInstant
     private set
 
   fun advance(duration: WorldDuration) {
-    currentInstant += duration
+    if (duration.value > 0) {
+      currentInstant += duration
+      eventPublisher?.invoke("ClockAdvanced", duration, null)
+    }
   }
 
   fun restore(instant: WorldInstant) {
@@ -545,28 +607,35 @@ data class WorldScheduledEvent(
 }
 
 data class WorldSchedulerSnapshot(
-  val events: List<WorldScheduledEvent>,
-  val recurrences: List<WorldRecurrence>
+  val events: List<WorldScheduledEvent>, val recurrences: List<WorldRecurrence>
 )
 
 class WorldScheduler {
+  internal var eventPublisher: ((String, Any?, WorldEntityId?) -> Unit)? = null
+
   private val events = mutableMapOf<WorldScheduledEventId, WorldScheduledEvent>()
   private val recurrences = mutableMapOf<WorldRecurrenceId, WorldRecurrence>()
 
   fun schedule(event: WorldScheduledEvent) {
     events[event.id] = event
+    eventPublisher?.invoke("EventScheduled", event, null)
   }
 
   fun cancel(eventId: WorldScheduledEventId) {
-    events.remove(eventId)
+    if (events.remove(eventId) != null) {
+      eventPublisher?.invoke("EventCanceled", eventId, null)
+    }
   }
 
   fun defineRecurrence(recurrence: WorldRecurrence) {
     recurrences[recurrence.id] = recurrence
+    eventPublisher?.invoke("RecurrenceDefined", recurrence, null)
   }
 
   fun cancelRecurrence(recurrenceId: WorldRecurrenceId) {
-    recurrences.remove(recurrenceId)
+    if (recurrences.remove(recurrenceId) != null) {
+      eventPublisher?.invoke("RecurrenceCanceled", recurrenceId, null)
+    }
   }
 
   fun getRecurrence(recurrenceId: WorldRecurrenceId): WorldRecurrence? {
@@ -587,6 +656,8 @@ class WorldScheduler {
       for (event in reached) {
         events.remove(event.id)
         processed.add(event)
+
+        eventPublisher?.invoke("EventProcessed", event, null)
 
         event.recurrenceId?.let { recId ->
           recurrences[recId]?.let { recurrence ->
