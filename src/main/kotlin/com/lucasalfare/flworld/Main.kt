@@ -204,8 +204,7 @@ class DijkstraPathFinder(
 }
 
 class AStarPathFinder(
-  private val costEvaluator: WorldNavigationCost,
-  private val heuristic: WorldHeuristic
+  private val costEvaluator: WorldNavigationCost, private val heuristic: WorldHeuristic
 ) : WorldPathFinder {
   override fun findPath(
     graph: WorldGraph,
@@ -483,8 +482,25 @@ class WorldScheduler {
 
 interface WorldDurationEstimator {
   fun estimateDuration(
-    path: WorldPath,
-    cost: Double,
-    profile: Any? = null
+    path: WorldPath, cost: Double, profile: Any? = null
   ): WorldDuration
+}
+
+enum class WorldMovementState {
+  IN_PROGRESS, COMPLETED, INTERRUPTED
+}
+
+data class WorldMovement(
+  val entityId: WorldEntityId,
+  val origin: WorldLocationId,
+  val destination: WorldLocationId,
+  val path: WorldPath,
+  val startInstant: WorldInstant,
+  val duration: WorldDuration,
+  val progress: Double = 0.0,
+  val state: WorldMovementState = WorldMovementState.IN_PROGRESS
+) {
+  init {
+    require(progress in 0.0..1.0) { "O progresso do movimento deve estar entre 0.0 e 1.0." }
+  }
 }
