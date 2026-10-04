@@ -54,30 +54,31 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
   internal var isRestoring = false
 
   val graph = WorldGraph().apply {
-    eventPublisher = ::publish
+    eventPublisher = ::notifyObservers
     locationRemovalHandler = ::handleLocationRemoval
     connectionRemovalHandler = ::handleConnectionRemoval
     restoreValidator = ::validateGraphRestore
   }
   val state = WorldState().apply {
-    eventPublisher = ::publish
+    eventPublisher = ::notifyObservers
     entityValidator = ::hasEntity
     locationValidator = { graph.getLocation(it) != null }
     locationChangeValidator = ::validateEntityLocationChange
   }
   val clock = WorldClock().apply {
-    eventPublisher = ::publish
+    eventPublisher = ::notifyObservers
   }
   val scheduler = WorldScheduler().apply {
-    eventPublisher = ::publish
+    eventPublisher = ::notifyObservers
     currentInstantProvider = { clock.currentInstant }
   }
 
-  fun onEvent(observer: WorldObserver) {
-    observers.add(observer) // ISSO NÃO FAZ SENTIDO
+  // TODO: implementar "remove" observador! Pra evitar ter entidades fantasmas aqui e erros posteriores
+  fun addObserver(observer: WorldObserver) {
+    observers.add(observer)
   }
 
-  internal fun publish(type: String, data: Any? = null, sourceId: WorldEntityId? = null) {
+  internal fun notifyObservers(type: String, data: Any? = null, sourceId: WorldEntityId? = null) {
     if (isRestoring || observers.isEmpty()) return
     val event = WorldEvent(
       instant = clock.currentInstant, type = type, data = data, sourceId = sourceId, snapshot = snapshot()
@@ -101,7 +102,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
     val entity = entities[entityId] ?: return
     if (entity.isEventPropagationEnabled == enabled) return
     entities[entityId] = entity.copy(isEventPropagationEnabled = enabled)
-    publish("EntityEventPropagationChanged", enabled, entityId)
+    notifyObservers("EntityEventPropagationChanged", enabled, entityId)
   }
 
   fun publishEntityEvent(entityId: WorldEntityId, type: String, data: Any? = null) {
@@ -116,7 +117,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
   fun registerEntity(entity: WorldEntity) {
     require(entity.id !in entities) { "A entidade '${entity.id.value}' já está registada." }
     entities[entity.id] = entity
-    publish("EntityRegistered", entity, entity.id)
+    notifyObservers("EntityRegistered", entity, entity.id)
   }
 
   fun getEntity(id: WorldEntityId): WorldEntity? {
@@ -132,7 +133,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
     stopMovement(id)
     state.removeLocation(id)
     entities.remove(id)
-    publish("EntityRemoved", id, id)
+    notifyObservers("EntityRemoved", id, id)
   }
 
   fun registerGroup(group: WorldGroup) {
@@ -142,10 +143,10 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
         "A localização '${locationId.value}' deve estar registada no grafo."
       }
     }
-    group.eventPublisher = ::publish
+    group.eventPublisher = ::notifyObservers
     group.locationValidator = { graph.getLocation(it) != null }
     groups[group.id] = group
-    publish("GroupRegistered", group)
+    notifyObservers("GroupRegistered", group)
   }
 
   fun getGroup(id: WorldGroupId): WorldGroup? {
@@ -156,7 +157,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
     val group = groups.remove(id) ?: return
     group.eventPublisher = null
     group.locationValidator = null
-    publish("GroupRemoved", id)
+    notifyObservers("GroupRemoved", id)
   }
 
   fun startMovement(movement: WorldMovement) {
@@ -195,7 +196,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
     }
 
     movements[movement.entityId] = movement
-    publish("MovementStarted", movement, movement.entityId)
+    notifyObservers("MovementStarted", movement, movement.entityId)
   }
 
   fun getMovement(entityId: WorldEntityId): WorldMovement? {
@@ -205,7 +206,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
   fun stopMovement(entityId: WorldEntityId) {
     val movement = movements.remove(entityId) ?: return
     val interrupted = movement.copy(state = WorldMovementState.INTERRUPTED)
-    publish("MovementInterrupted", interrupted, entityId)
+    notifyObservers("MovementInterrupted", interrupted, entityId)
   }
 
   fun getActiveMovements(): List<WorldMovement> {
@@ -268,10 +269,10 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
         movements.remove(movement.entityId)
         state.setLocation(movement.entityId, movement.destination)
         completed.add(updated)
-        publish("MovementCompleted", updated, movement.entityId)
+        notifyObservers("MovementCompleted", updated, movement.entityId)
       } else if (updated.progress != movement.progress) {
         movements[movement.entityId] = updated
-        publish("MovementProgressed", updated, movement.entityId)
+        notifyObservers("MovementProgressed", updated, movement.entityId)
       }
     }
 
@@ -496,7 +497,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
       snapshot.activeMovements.forEach { world.startMovement(it) }
 
       world.isRestoring = false
-      world.publish("WorldRestored", snapshot)
+      world.notifyObservers("WorldRestored", snapshot)
       return world
     }
   }
