@@ -111,3 +111,29 @@ class WorldGroup(val id: WorldGroupId) {
     return locations.toSet()
   }
 }
+
+@JvmInline
+value class WorldDuration(val value: Long) : Comparable<WorldDuration> {
+  override fun compareTo(other: WorldDuration): Int {
+    return this.value.compareTo(other.value)
+  }
+}
+
+@JvmInline
+value class WorldInstant(val value: Long) : Comparable<WorldInstant> {
+  override fun compareTo(other: WorldInstant): Int {
+    return this.value.compareTo(other.value)
+  }
+
+  operator fun minus(other: WorldInstant): WorldDuration {
+    return WorldDuration(this.value - other.value)
+  }
+
+  operator fun plus(duration: WorldDuration): WorldInstant {
+    return WorldInstant(this.value + duration.value)
+  }
+
+  operator fun minus(duration: WorldDuration): WorldInstant {
+    return WorldInstant(this.value - duration.value)
+  }
+}
