@@ -25,3 +25,23 @@ data class WorldConnection(
   val from: WorldLocationId,
   val to: WorldLocationId
 )
+
+class World(val id: WorldId) {
+  private val entities = mutableMapOf<WorldEntityId, WorldEntity>()
+
+  fun registerEntity(entity: WorldEntity) {
+    entities[entity.id] = entity
+  }
+
+  fun getEntity(id: WorldEntityId): WorldEntity? {
+    return entities[id]
+  }
+
+  fun hasEntity(id: WorldEntityId): Boolean {
+    return entities.containsKey(id)
+  }
+
+  fun removeEntity(id: WorldEntityId) {
+    entities.remove(id)
+  }
+}
