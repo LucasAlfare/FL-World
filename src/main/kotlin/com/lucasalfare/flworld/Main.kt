@@ -159,3 +159,82 @@ class WorldClock(initialInstant: WorldInstant = WorldInstant(0)) {
 interface WorldCalendar {
   fun toDate(instant: WorldInstant): CalendarDate
 }
+
+@JvmInline
+value class WorldScheduledEventId(val value: String)
+
+@JvmInline
+value class WorldRecurrenceId(val value: String)
+
+data class WorldRecurrence(
+  val id: WorldRecurrenceId,
+  val interval: WorldDuration
+)
+
+data class WorldScheduledEvent(
+  val id: WorldScheduledEventId,
+  val instant: WorldInstant,
+  val type: String,
+  val payload: Any? = null,
+  val recurrenceId: WorldRecurrenceId? = null
+) : Comparable<WorldScheduledEvent> {
+  override fun compareTo(other: WorldScheduledEvent): Int {
+    val instantComparison = this.instant.compareTo(other.instant)
+    if (instantComparison != 0) return instantComparison
+    return this.id.value.compareTo(other.id.value)
+  }
+}
+
+class WorldScheduler {
+  private val events = mutableMapOf<WorldScheduledEventId, WorldScheduledEvent>()
+  private val recurrences = mutableMapOf<WorldRecurrenceId, WorldRecurrence>()
+
+  fun schedule(event: WorldScheduledEvent) {
+    events[event.id] = event
+  }
+
+  fun cancel(eventId: WorldScheduledEventId) {
+    events.remove(eventId)
+  }
+
+  fun defineRecurrence(recurrence: WorldRecurrence) {
+    recurrences[recurrence.id] = recurrence
+  }
+
+  fun cancelRecurrence(recurrenceId: WorldRecurrenceId) {
+    recurrences.remove(recurrenceId)
+  }
+
+  fun getRecurrence(recurrenceId: WorldRecurrenceId): WorldRecurrence? {
+    return recurrences[recurrenceId]
+  }
+
+  fun getFutureEvents(afterInstant: WorldInstant): List<WorldScheduledEvent> {
+    return events.values.filter { it.instant > afterInstant }.sorted()
+  }
+
+  fun processEventsUpTo(currentInstant: WorldInstant): List<WorldScheduledEvent> {
+    val processed = mutableListOf<WorldScheduledEvent>()
+
+    while (true) {
+      val reached = events.values.filter { it.instant <= currentInstant }.sorted()
+      if (reached.isEmpty()) break
+
+      for (event in reached) {
+        events.remove(event.id)
+        processed.add(event)
+
+        event.recurrenceId?.let { recId ->
+          recurrences[recId]?.let { recurrence ->
+            if (recurrence.interval.value > 0L) {
+              val nextInstant = event.instant + recurrence.interval
+              schedule(event.copy(instant = nextInstant))
+            }
+          }
+        }
+      }
+    }
+
+    return processed
+  }
+}
