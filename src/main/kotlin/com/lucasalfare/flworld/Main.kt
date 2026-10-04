@@ -132,6 +132,144 @@ class UnweightedPathFinder : WorldPathFinder {
   }
 }
 
+fun interface WorldNavigationCost {
+  fun getCost(connection: WorldConnection, context: WorldAccessContext): Double
+}
+
+fun interface WorldHeuristic {
+  fun estimate(from: WorldLocationId, to: WorldLocationId): Double
+}
+
+class DijkstraPathFinder(
+  private val costEvaluator: WorldNavigationCost
+) : WorldPathFinder {
+  override fun findPath(
+    graph: WorldGraph,
+    from: WorldLocationId,
+    to: WorldLocationId,
+    accessEvaluator: WorldAccessEvaluator?,
+    accessContext: WorldAccessContext
+  ): WorldPath? {
+    if (graph.getLocation(from) == null || graph.getLocation(to) == null) return null
+    if (from == to) return WorldPath(from, to, emptyList())
+
+    val distances = mutableMapOf<WorldLocationId, Double>().withDefault { Double.POSITIVE_INFINITY }
+    val previousConnection = mutableMapOf<WorldLocationId, WorldConnection>()
+    val unvisited = java.util.PriorityQueue<Pair<WorldLocationId, Double>>(compareBy { it.second })
+    val visited = mutableSetOf<WorldLocationId>()
+
+    distances[from] = 0.0
+    unvisited.add(from to 0.0)
+
+    while (unvisited.isNotEmpty()) {
+      val (current, currentDist) = unvisited.poll()
+
+      if (current == to) break
+      if (!visited.add(current)) continue
+
+      for (conn in graph.getOutgoingConnections(current)) {
+        val currentCtx =
+          if (accessContext.locationId == null) accessContext.copy(locationId = current) else accessContext
+        if (accessEvaluator != null && !accessEvaluator.canTraverse(conn, currentCtx)) {
+          continue
+        }
+
+        val cost = costEvaluator.getCost(conn, currentCtx)
+        require(cost >= 0.0) { "O custo de navegação não pode ser negativo." }
+
+        val newDist = currentDist + cost
+        val next = conn.to
+
+        if (newDist < distances.getValue(next)) {
+          distances[next] = newDist
+          previousConnection[next] = conn
+          unvisited.add(next to newDist)
+        }
+      }
+    }
+
+    if (to !in previousConnection) return null
+
+    val pathConnections = mutableListOf<WorldConnection>()
+    var curr = to
+    while (curr != from) {
+      val conn = previousConnection[curr] ?: break
+      pathConnections.add(conn)
+      curr = conn.from
+    }
+    pathConnections.reverse()
+
+    return WorldPath(from, to, pathConnections)
+  }
+}
+
+class AStarPathFinder(
+  private val costEvaluator: WorldNavigationCost,
+  private val heuristic: WorldHeuristic
+) : WorldPathFinder {
+  override fun findPath(
+    graph: WorldGraph,
+    from: WorldLocationId,
+    to: WorldLocationId,
+    accessEvaluator: WorldAccessEvaluator?,
+    accessContext: WorldAccessContext
+  ): WorldPath? {
+    if (graph.getLocation(from) == null || graph.getLocation(to) == null) return null
+    if (from == to) return WorldPath(from, to, emptyList())
+
+    val gScore = mutableMapOf<WorldLocationId, Double>().withDefault { Double.POSITIVE_INFINITY }
+    val previousConnection = mutableMapOf<WorldLocationId, WorldConnection>()
+    val openSet = java.util.PriorityQueue<Pair<WorldLocationId, Double>>(compareBy { it.second })
+    val visited = mutableSetOf<WorldLocationId>()
+
+    gScore[from] = 0.0
+    openSet.add(from to heuristic.estimate(from, to))
+
+    while (openSet.isNotEmpty()) {
+      val (current, _) = openSet.poll()
+
+      if (current == to) break
+      if (!visited.add(current)) continue
+
+      val currentGScore = gScore.getValue(current)
+
+      for (conn in graph.getOutgoingConnections(current)) {
+        val currentCtx =
+          if (accessContext.locationId == null) accessContext.copy(locationId = current) else accessContext
+        if (accessEvaluator != null && !accessEvaluator.canTraverse(conn, currentCtx)) {
+          continue
+        }
+
+        val cost = costEvaluator.getCost(conn, currentCtx)
+        require(cost >= 0.0) { "O custo de navegação não pode ser negativo." }
+
+        val tentativeGScore = currentGScore + cost
+        val next = conn.to
+
+        if (tentativeGScore < gScore.getValue(next)) {
+          previousConnection[next] = conn
+          gScore[next] = tentativeGScore
+          val fScore = tentativeGScore + heuristic.estimate(next, to)
+          openSet.add(next to fScore)
+        }
+      }
+    }
+
+    if (to !in previousConnection) return null
+
+    val pathConnections = mutableListOf<WorldConnection>()
+    var curr = to
+    while (curr != from) {
+      val conn = previousConnection[curr] ?: break
+      pathConnections.add(conn)
+      curr = conn.from
+    }
+    pathConnections.reverse()
+
+    return WorldPath(from, to, pathConnections)
+  }
+}
+
 class WorldGraph {
   private val locations = mutableMapOf<WorldLocationId, WorldLocation>()
   private val connections = mutableMapOf<WorldConnectionId, WorldConnection>()
