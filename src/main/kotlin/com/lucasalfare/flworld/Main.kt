@@ -487,6 +487,8 @@ class WorldGraph {
   }
 
   fun registerConnection(connection: WorldConnection) {
+    require(locations.containsKey(connection.from)) { "A localização de origem '${connection.from.value}' deve estar registada no grafo." }
+    require(locations.containsKey(connection.to)) { "A localização de destino '${connection.to.value}' deve estar registada no grafo." }
     connections[connection.id] = connection
     outgoingConnections.getOrPut(connection.from) { mutableListOf() }.add(connection)
     eventPublisher?.invoke("ConnectionRegistered", connection, null)
