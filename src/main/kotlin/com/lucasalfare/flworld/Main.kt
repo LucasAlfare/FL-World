@@ -15,7 +15,7 @@ value class WorldLocationId(val value: String)
 value class WorldConnectionId(val value: String)
 
 data class WorldEntity(
-  val id: WorldEntityId
+  val id: WorldEntityId, var isEventPropagationEnabled: Boolean = false
 )
 
 data class WorldLocation(
@@ -61,6 +61,28 @@ class World(val id: WorldId) {
     if (isRestoring || observers.isEmpty()) return
     val event = WorldEvent(
       instant = clock.currentInstant, type = type, data = data, sourceId = sourceId, snapshot = snapshot()
+    )
+    observers.forEach { it.onEvent(event) }
+  }
+
+  fun enableEntityEventPropagation(entityId: WorldEntityId) {
+    entities[entityId]?.isEventPropagationEnabled = true
+  }
+
+  fun disableEntityEventPropagation(entityId: WorldEntityId) {
+    entities[entityId]?.isEventPropagationEnabled = false
+  }
+
+  fun isEntityEventPropagationEnabled(entityId: WorldEntityId): Boolean {
+    return entities[entityId]?.isEventPropagationEnabled ?: false
+  }
+
+  fun publishEntityEvent(entityId: WorldEntityId, type: String, data: Any? = null) {
+    val entity = entities[entityId] ?: return
+    if (!entity.isEventPropagationEnabled) return
+    if (isRestoring || observers.isEmpty()) return
+    val event = WorldEvent(
+      instant = clock.currentInstant, type = type, data = data, sourceId = entityId, snapshot = snapshot()
     )
     observers.forEach { it.onEvent(event) }
   }
