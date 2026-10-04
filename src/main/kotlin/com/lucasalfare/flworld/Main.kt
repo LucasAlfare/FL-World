@@ -137,3 +137,25 @@ value class WorldInstant(val value: Long) : Comparable<WorldInstant> {
     return WorldInstant(this.value - duration.value)
   }
 }
+
+data class CalendarDate(
+  val year: Long,
+  val month: Int,
+  val day: Int,
+  val hour: Int,
+  val minute: Int,
+  val second: Int
+)
+
+class WorldClock(initialInstant: WorldInstant = WorldInstant(0)) {
+  var currentInstant: WorldInstant = initialInstant
+    private set
+
+  fun advance(duration: WorldDuration) {
+    currentInstant += duration
+  }
+}
+
+interface WorldCalendar {
+  fun toDate(instant: WorldInstant): CalendarDate
+}
