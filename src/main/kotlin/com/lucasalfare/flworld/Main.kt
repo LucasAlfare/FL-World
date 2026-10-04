@@ -74,7 +74,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
   }
 
   fun onEvent(observer: WorldObserver) {
-    observers.add(observer)
+    observers.add(observer) // ISSO NÃO FAZ SENTIDO
   }
 
   internal fun publish(type: String, data: Any? = null, sourceId: WorldEntityId? = null) {
