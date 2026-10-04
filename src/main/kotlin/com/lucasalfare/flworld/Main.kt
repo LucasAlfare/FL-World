@@ -503,4 +503,8 @@ data class WorldMovement(
   init {
     require(progress in 0.0..1.0) { "O progresso do movimento deve estar entre 0.0 e 1.0." }
   }
+
+  val isInProgress: Boolean get() = state == WorldMovementState.IN_PROGRESS
+  val isCompleted: Boolean get() = state == WorldMovementState.COMPLETED
+  val isInterrupted: Boolean get() = state == WorldMovementState.INTERRUPTED
 }
