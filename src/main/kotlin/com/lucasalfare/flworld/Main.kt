@@ -88,3 +88,26 @@ class WorldState {
     entityLocations.remove(entityId)
   }
 }
+
+@JvmInline
+value class WorldGroupId(val value: String)
+
+class WorldGroup(val id: WorldGroupId) {
+  private val locations = mutableSetOf<WorldLocationId>()
+
+  fun addLocation(locationId: WorldLocationId) {
+    locations.add(locationId)
+  }
+
+  fun removeLocation(locationId: WorldLocationId) {
+    locations.remove(locationId)
+  }
+
+  fun hasLocation(locationId: WorldLocationId): Boolean {
+    return locations.contains(locationId)
+  }
+
+  fun getLocations(): Set<WorldLocationId> {
+    return locations.toSet()
+  }
+}
