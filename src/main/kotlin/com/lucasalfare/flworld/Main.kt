@@ -480,3 +480,11 @@ class WorldScheduler {
     return processed
   }
 }
+
+interface WorldDurationEstimator {
+  fun estimateDuration(
+    path: WorldPath,
+    cost: Double,
+    profile: Any? = null
+  ): WorldDuration
+}
