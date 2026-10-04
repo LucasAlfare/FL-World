@@ -46,6 +46,21 @@ class World(val id: WorldId) {
   }
 }
 
+data class WorldPath(
+  val origin: WorldLocationId,
+  val destination: WorldLocationId,
+  val connections: List<WorldConnection> = emptyList()
+) {
+  val locations: List<WorldLocationId>
+    get() {
+      if (connections.isEmpty()) return listOf(origin)
+      val result = ArrayList<WorldLocationId>(connections.size + 1)
+      result.add(origin)
+      connections.mapTo(result) { it.to }
+      return result
+    }
+}
+
 class WorldGraph {
   private val locations = mutableMapOf<WorldLocationId, WorldLocation>()
   private val connections = mutableMapOf<WorldConnectionId, WorldConnection>()
@@ -70,6 +85,53 @@ class WorldGraph {
 
   fun getOutgoingConnections(locationId: WorldLocationId): List<WorldConnection> {
     return outgoingConnections[locationId]?.toList() ?: emptyList()
+  }
+
+  fun getNeighbors(locationId: WorldLocationId): List<WorldLocationId> {
+    return getOutgoingConnections(locationId).map { it.to }.distinct()
+  }
+
+  fun isReachable(from: WorldLocationId, to: WorldLocationId): Boolean {
+    return findPath(from, to) != null
+  }
+
+  fun findPath(from: WorldLocationId, to: WorldLocationId): WorldPath? {
+    if (getLocation(from) == null || getLocation(to) == null) return null
+    if (from == to) return WorldPath(from, to, emptyList())
+
+    val queue = ArrayDeque<WorldLocationId>()
+    val parentConnection = mutableMapOf<WorldLocationId, WorldConnection>()
+    val visited = mutableSetOf<WorldLocationId>()
+
+    queue.add(from)
+    visited.add(from)
+
+    while (queue.isNotEmpty()) {
+      val current = queue.removeFirst()
+      if (current == to) break
+
+      for (conn in getOutgoingConnections(current)) {
+        val next = conn.to
+        if (next !in visited) {
+          visited.add(next)
+          parentConnection[next] = conn
+          queue.add(next)
+        }
+      }
+    }
+
+    if (to !in parentConnection) return null
+
+    val pathConnections = mutableListOf<WorldConnection>()
+    var curr = to
+    while (curr != from) {
+      val conn = parentConnection[curr] ?: break
+      pathConnections.add(conn)
+      curr = conn.from
+    }
+    pathConnections.reverse()
+
+    return WorldPath(from, to, pathConnections)
   }
 }
 
