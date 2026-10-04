@@ -72,3 +72,19 @@ class WorldGraph {
     return outgoingConnections[locationId]?.toList() ?: emptyList()
   }
 }
+
+class WorldState {
+  private val entityLocations = mutableMapOf<WorldEntityId, WorldLocationId>()
+
+  fun setLocation(entityId: WorldEntityId, locationId: WorldLocationId) {
+    entityLocations[entityId] = locationId
+  }
+
+  fun getLocation(entityId: WorldEntityId): WorldLocationId? {
+    return entityLocations[entityId]
+  }
+
+  fun removeLocation(entityId: WorldEntityId) {
+    entityLocations.remove(entityId)
+  }
+}
