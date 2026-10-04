@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.lucasalfare.flworld
 
 @JvmInline
@@ -21,9 +23,7 @@ data class WorldLocation(
 )
 
 data class WorldConnection(
-  val id: WorldConnectionId,
-  val from: WorldLocationId,
-  val to: WorldLocationId
+  val id: WorldConnectionId, val from: WorldLocationId, val to: WorldLocationId
 )
 
 class World(val id: WorldId) {
@@ -47,9 +47,7 @@ class World(val id: WorldId) {
 }
 
 data class WorldPath(
-  val origin: WorldLocationId,
-  val destination: WorldLocationId,
-  val connections: List<WorldConnection> = emptyList()
+  val origin: WorldLocationId, val destination: WorldLocationId, val connections: List<WorldConnection> = emptyList()
 ) {
   val locations: List<WorldLocationId>
     get() {
@@ -61,12 +59,35 @@ data class WorldPath(
     }
 }
 
-fun interface WorldPathFinder {
-  fun findPath(graph: WorldGraph, from: WorldLocationId, to: WorldLocationId): WorldPath?
+data class WorldAccessContext(
+  val entityId: WorldEntityId? = null,
+  val locationId: WorldLocationId? = null,
+  val state: WorldState? = null,
+  val payload: Any? = null
+)
+
+fun interface WorldAccessEvaluator {
+  fun canTraverse(connection: WorldConnection, context: WorldAccessContext): Boolean
+}
+
+interface WorldPathFinder {
+  fun findPath(
+    graph: WorldGraph,
+    from: WorldLocationId,
+    to: WorldLocationId,
+    accessEvaluator: WorldAccessEvaluator? = null,
+    accessContext: WorldAccessContext = WorldAccessContext()
+  ): WorldPath?
 }
 
 class UnweightedPathFinder : WorldPathFinder {
-  override fun findPath(graph: WorldGraph, from: WorldLocationId, to: WorldLocationId): WorldPath? {
+  override fun findPath(
+    graph: WorldGraph,
+    from: WorldLocationId,
+    to: WorldLocationId,
+    accessEvaluator: WorldAccessEvaluator?,
+    accessContext: WorldAccessContext
+  ): WorldPath? {
     if (graph.getLocation(from) == null || graph.getLocation(to) == null) return null
     if (from == to) return WorldPath(from, to, emptyList())
 
@@ -82,6 +103,11 @@ class UnweightedPathFinder : WorldPathFinder {
       if (current == to) break
 
       for (conn in graph.getOutgoingConnections(current)) {
+        val currentCtx =
+          if (accessContext.locationId == null) accessContext.copy(locationId = current) else accessContext
+        if (accessEvaluator != null && !accessEvaluator.canTraverse(conn, currentCtx)) {
+          continue
+        }
         val next = conn.to
         if (next !in visited) {
           visited.add(next)
@@ -139,17 +165,21 @@ class WorldGraph {
   fun isReachable(
     from: WorldLocationId,
     to: WorldLocationId,
-    pathFinder: WorldPathFinder = UnweightedPathFinder()
+    pathFinder: WorldPathFinder = UnweightedPathFinder(),
+    accessEvaluator: WorldAccessEvaluator? = null,
+    accessContext: WorldAccessContext = WorldAccessContext()
   ): Boolean {
-    return pathFinder.findPath(this, from, to) != null
+    return pathFinder.findPath(this, from, to, accessEvaluator, accessContext) != null
   }
 
   fun findPath(
     from: WorldLocationId,
     to: WorldLocationId,
-    pathFinder: WorldPathFinder = UnweightedPathFinder()
+    pathFinder: WorldPathFinder = UnweightedPathFinder(),
+    accessEvaluator: WorldAccessEvaluator? = null,
+    accessContext: WorldAccessContext = WorldAccessContext()
   ): WorldPath? {
-    return pathFinder.findPath(this, from, to)
+    return pathFinder.findPath(this, from, to, accessEvaluator, accessContext)
   }
 }
 
@@ -219,12 +249,7 @@ value class WorldInstant(val value: Long) : Comparable<WorldInstant> {
 }
 
 data class CalendarDate(
-  val year: Long,
-  val month: Int,
-  val day: Int,
-  val hour: Int,
-  val minute: Int,
-  val second: Int
+  val year: Long, val month: Int, val day: Int, val hour: Int, val minute: Int, val second: Int
 )
 
 class WorldClock(initialInstant: WorldInstant = WorldInstant(0)) {
@@ -247,8 +272,7 @@ value class WorldScheduledEventId(val value: String)
 value class WorldRecurrenceId(val value: String)
 
 data class WorldRecurrence(
-  val id: WorldRecurrenceId,
-  val interval: WorldDuration
+  val id: WorldRecurrenceId, val interval: WorldDuration
 )
 
 data class WorldScheduledEvent(
