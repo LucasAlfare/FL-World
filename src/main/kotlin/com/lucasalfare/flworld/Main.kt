@@ -28,6 +28,15 @@ data class WorldConnection(
 
 class World(val id: WorldId) {
   private val entities = mutableMapOf<WorldEntityId, WorldEntity>()
+  private val groups = mutableMapOf<WorldGroupId, WorldGroup>()
+  private val movements = mutableMapOf<WorldEntityId, WorldMovement>()
+
+  val graph = WorldGraph()
+  val state = WorldState()
+  val clock = WorldClock()
+  val scheduler = WorldScheduler()
+
+  var calendar: WorldCalendar? = null
 
   fun registerEntity(entity: WorldEntity) {
     entities[entity.id] = entity
@@ -43,6 +52,71 @@ class World(val id: WorldId) {
 
   fun removeEntity(id: WorldEntityId) {
     entities.remove(id)
+  }
+
+  fun registerGroup(group: WorldGroup) {
+    groups[group.id] = group
+  }
+
+  fun getGroup(id: WorldGroupId): WorldGroup? {
+    return groups[id]
+  }
+
+  fun removeGroup(id: WorldGroupId) {
+    groups.remove(id)
+  }
+
+  fun startMovement(movement: WorldMovement) {
+    movements[movement.entityId] = movement
+  }
+
+  fun getMovement(entityId: WorldEntityId): WorldMovement? {
+    return movements[entityId]
+  }
+
+  fun stopMovement(entityId: WorldEntityId) {
+    movements.remove(entityId)
+  }
+
+  fun getActiveMovements(): List<WorldMovement> {
+    return movements.values.toList()
+  }
+
+  fun snapshot(): WorldSnapshot {
+    return WorldSnapshot(
+      id = id,
+      entities = entities.values.toList(),
+      entityLocations = state.snapshot(),
+      graph = graph.snapshot(),
+      groups = groups.values.map { it.snapshot() },
+      currentInstant = clock.currentInstant,
+      scheduler = scheduler.snapshot(),
+      activeMovements = movements.values.toList()
+    )
+  }
+
+  companion object {
+    fun restore(snapshot: WorldSnapshot, calendar: WorldCalendar? = null): World {
+      val world = World(snapshot.id)
+      world.calendar = calendar
+
+      snapshot.entities.forEach { world.registerEntity(it) }
+      world.state.restore(snapshot.entityLocations)
+      world.graph.restore(snapshot.graph)
+
+      snapshot.groups.forEach { groupSnap ->
+        val group = WorldGroup(groupSnap.id)
+        group.restore(groupSnap)
+        world.registerGroup(group)
+      }
+
+      world.clock.restore(snapshot.currentInstant)
+      world.scheduler.restore(snapshot.scheduler)
+
+      snapshot.activeMovements.forEach { world.startMovement(it) }
+
+      return world
+    }
   }
 }
 
@@ -269,6 +343,11 @@ class AStarPathFinder(
   }
 }
 
+data class WorldGraphSnapshot(
+  val locations: List<WorldLocation>,
+  val connections: List<WorldConnection>
+)
+
 class WorldGraph {
   private val locations = mutableMapOf<WorldLocationId, WorldLocation>()
   private val connections = mutableMapOf<WorldConnectionId, WorldConnection>()
@@ -318,6 +397,18 @@ class WorldGraph {
   ): WorldPath? {
     return pathFinder.findPath(this, from, to, accessEvaluator, accessContext)
   }
+
+  fun snapshot(): WorldGraphSnapshot {
+    return WorldGraphSnapshot(locations.values.toList(), connections.values.toList())
+  }
+
+  fun restore(snapshot: WorldGraphSnapshot) {
+    locations.clear()
+    connections.clear()
+    outgoingConnections.clear()
+    snapshot.locations.forEach { registerLocation(it) }
+    snapshot.connections.forEach { registerConnection(it) }
+  }
 }
 
 class WorldState {
@@ -334,10 +425,24 @@ class WorldState {
   fun removeLocation(entityId: WorldEntityId) {
     entityLocations.remove(entityId)
   }
+
+  fun snapshot(): Map<WorldEntityId, WorldLocationId> {
+    return entityLocations.toMap()
+  }
+
+  fun restore(snapshot: Map<WorldEntityId, WorldLocationId>) {
+    entityLocations.clear()
+    entityLocations.putAll(snapshot)
+  }
 }
 
 @JvmInline
 value class WorldGroupId(val value: String)
+
+data class WorldGroupSnapshot(
+  val id: WorldGroupId,
+  val locations: Set<WorldLocationId>
+)
 
 class WorldGroup(val id: WorldGroupId) {
   private val locations = mutableSetOf<WorldLocationId>()
@@ -356,6 +461,15 @@ class WorldGroup(val id: WorldGroupId) {
 
   fun getLocations(): Set<WorldLocationId> {
     return locations.toSet()
+  }
+
+  fun snapshot(): WorldGroupSnapshot {
+    return WorldGroupSnapshot(id, locations.toSet())
+  }
+
+  fun restore(snapshot: WorldGroupSnapshot) {
+    locations.clear()
+    locations.addAll(snapshot.locations)
   }
 }
 
@@ -396,6 +510,10 @@ class WorldClock(initialInstant: WorldInstant = WorldInstant(0)) {
   fun advance(duration: WorldDuration) {
     currentInstant += duration
   }
+
+  fun restore(instant: WorldInstant) {
+    currentInstant = instant
+  }
 }
 
 interface WorldCalendar {
@@ -425,6 +543,11 @@ data class WorldScheduledEvent(
     return this.id.value.compareTo(other.id.value)
   }
 }
+
+data class WorldSchedulerSnapshot(
+  val events: List<WorldScheduledEvent>,
+  val recurrences: List<WorldRecurrence>
+)
 
 class WorldScheduler {
   private val events = mutableMapOf<WorldScheduledEventId, WorldScheduledEvent>()
@@ -478,6 +601,17 @@ class WorldScheduler {
 
     return processed
   }
+
+  fun snapshot(): WorldSchedulerSnapshot {
+    return WorldSchedulerSnapshot(events.values.toList(), recurrences.values.toList())
+  }
+
+  fun restore(snapshot: WorldSchedulerSnapshot) {
+    events.clear()
+    recurrences.clear()
+    snapshot.events.forEach { schedule(it) }
+    snapshot.recurrences.forEach { defineRecurrence(it) }
+  }
 }
 
 interface WorldDurationEstimator {
@@ -529,3 +663,14 @@ data class WorldMovement(
     return copy(progress = currentProgress, state = newState)
   }
 }
+
+data class WorldSnapshot(
+  val id: WorldId,
+  val entities: List<WorldEntity>,
+  val entityLocations: Map<WorldEntityId, WorldLocationId>,
+  val graph: WorldGraphSnapshot,
+  val groups: List<WorldGroupSnapshot>,
+  val currentInstant: WorldInstant,
+  val scheduler: WorldSchedulerSnapshot,
+  val activeMovements: List<WorldMovement>
+)
