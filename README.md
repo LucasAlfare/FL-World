@@ -4,6 +4,7 @@ A generic Kotlin/JVM library for modeling and simulating spatial-temporal worlds
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-JVM-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![](https://jitpack.io/v/LucasAlfare/FL-World.svg)](https://jitpack.io/#LucasAlfare/FL-World)
 
 > **The library provides structure. The application provides meaning.**
 
@@ -158,7 +159,7 @@ In the module's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-  implementation(">>>>TODO<<<<")
+  implementation("com.github.LucasAlfare:FL-World:1.0.0")
 }
 ```
 
