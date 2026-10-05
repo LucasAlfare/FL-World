@@ -73,9 +73,22 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
     currentInstantProvider = { clock.currentInstant }
   }
 
-  // TODO: implementar "remove" observador! Pra evitar ter entidades fantasmas aqui e erros posteriores
   fun addObserver(observer: WorldObserver) {
-    observers.add(observer)
+    if (!observers.contains(observer)) {
+      observers.add(observer)
+    }
+  }
+
+  fun removeObserver(observer: WorldObserver) {
+    observers.remove(observer)
+  }
+
+  fun removeObservers(predicate: (WorldObserver) -> Boolean) {
+    observers.removeAll(predicate)
+  }
+
+  fun clearObservers() {
+    observers.clear()
   }
 
   internal fun notifyObservers(type: String, data: Any? = null, sourceId: WorldEntityId? = null) {
@@ -390,13 +403,17 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
   }
 
   private fun validateWorldSnapshot(snapshot: WorldSnapshot) {
-    require(snapshot.entities.map { it.id }.distinct().size == snapshot.entities.size) {
+    val entityIds = snapshot.entities.map { it.id }.toSet()
+    require(entityIds.size == snapshot.entities.size) {
       "O snapshot possui entidades duplicadas."
     }
-    require(snapshot.groups.map { it.id }.distinct().size == snapshot.groups.size) {
+
+    val groupIds = snapshot.groups.map { it.id }.toSet()
+    require(groupIds.size == snapshot.groups.size) {
       "O snapshot possui grupos duplicados."
     }
-    require(snapshot.entityLocations.keys.all { entityId -> snapshot.entities.any { it.id == entityId } }) {
+
+    require(snapshot.entityLocations.keys.all { it in entityIds }) {
       "O snapshot possui localizações associadas a entidades inexistentes."
     }
 
@@ -448,7 +465,7 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
       require(movement.state == WorldMovementState.IN_PROGRESS) {
         "Somente movimentos em andamento podem aparecer como ativos no snapshot."
       }
-      require(movement.entityId in snapshot.entities.map { it.id }) {
+      require(movement.entityId in entityIds) {
         "Um movimento referencia uma entidade inexistente."
       }
       require(movement.origin in locationIds && movement.destination in locationIds) {
@@ -477,10 +494,16 @@ class World(val id: WorldId, val calendar: WorldCalendar? = null) {
   )
 
   companion object {
-    fun restore(snapshot: WorldSnapshot, calendar: WorldCalendar? = snapshot.calendar): World {
+    fun restore(
+      snapshot: WorldSnapshot,
+      calendar: WorldCalendar? = snapshot.calendar,
+      observers: List<WorldObserver> = emptyList()
+    ): World {
       val world = World(snapshot.id, calendar)
       world.validateWorldSnapshot(snapshot)
       world.isRestoring = true
+
+      observers.forEach { world.addObserver(it) }
 
       snapshot.entities.forEach { world.registerEntity(it) }
       world.graph.restore(snapshot.graph)
